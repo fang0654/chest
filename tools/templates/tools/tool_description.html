@@ -1,0 +1,8 @@
+{% load static %}
+{% load tool_filters %}
+
+<div class="prose prose-sm max-w-none">
+    <div class="description-preview expanded">
+        {{ tool.description|markdown_to_html|safe }}
+    </div>
+</div> 

@@ -1,0 +1,69 @@
+{% extends "tools/base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-gray-800">Open Source Tool Chest</h1>
+        <div class="flex space-x-4">
+            <button type="button"
+                    class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors"
+                    hx-get="{% url 'import_tool' %}"
+                    hx-target="#import-modal-container">
+                Import Tool
+            </button>
+            <a href="{% url 'submit_tool' %}" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                Submit Tool
+            </a>
+        </div>
+    </div>
+
+    {% if messages %}
+    <div class="mb-6">
+        {% for message in messages %}
+        <div class="p-4 rounded-lg {% if message.tags == 'error' %}bg-red-100 text-red-700{% else %}bg-green-100 text-green-700{% endif %}">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <form method="get" class="space-y-4">
+            <div class="flex gap-4">
+                <div class="flex-1">
+                    <input type="text" name="q" value="{{ request.GET.q }}" placeholder="Search tools..." 
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <button type="submit" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                    Search
+                </button>
+            </div>
+            {% if all_tags %}
+            <div class="flex flex-wrap gap-2">
+                {% for tag in all_tags %}
+                <label class="inline-flex items-center">
+                    <input type="checkbox" name="tags" value="{{ tag.id }}" 
+                           {% if tag.id|stringformat:"s" in selected_tags %}checked{% endif %}
+                           class="form-checkbox h-4 w-4 text-blue-500 rounded border-gray-300">
+                    <span class="ml-2 text-gray-700">{{ tag.name }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </form>
+    </div>
+
+    <div id="tool-list" class="space-y-6">
+        {% for tool in tools %}
+            {% include "tools/tool_card.html" with tool=tool %}
+        {% empty %}
+        <div class="text-center py-12">
+            <p class="text-gray-500">No tools found matching your search criteria.</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div id="import-modal-container"></div>
+{% endblock %}

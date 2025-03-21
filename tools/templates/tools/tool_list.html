@@ -1,0 +1,57 @@
+{% extends "tools/base.html" %} {% block content %}
+<div class="max-w-4xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">Open Source Tool Chest</h1>
+    <a
+      href="{% url 'submit_tool' %}"
+      class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg"
+    >
+      Submit Tool
+    </a>
+  </div>
+
+  <div class="mb-6">
+    <form
+      hx-get="{% url 'tool_list' %}"
+      hx-target="#search-results"
+      hx-push-url="true"
+      class="flex gap-2"
+    >
+      <input
+        type="text"
+        name="q"
+        placeholder="Search tools..."
+        class="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        value="{{ request.GET.q }}"
+      />
+      <button
+        type="submit"
+        class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg"
+      >
+        Search
+      </button>
+    </form>
+  </div>
+
+  <div class="mb-6">
+    <div class="flex flex-wrap gap-2">
+      <a
+        href="{% url 'tool_list' %}{% if request.GET.q %}?q={{ request.GET.q }}{% endif %}"
+        class="px-3 py-1 rounded-full text-sm {% if not selected_tag %}bg-blue-500 text-white{% else %}bg-gray-200 text-gray-700 hover:bg-gray-300{% endif %}"
+      >
+        All
+      </a>
+      {% for tag in tags %}
+      <a
+        href="{% url 'tool_list' %}?tag={{ tag.slug }}{% if request.GET.q %}&q={{ request.GET.q }}{% endif %}"
+        class="px-3 py-1 rounded-full text-sm {% if selected_tag == tag.slug %}bg-blue-500 text-white{% else %}bg-gray-200 text-gray-700 hover:bg-gray-300{% endif %}"
+      >
+        {{ tag.name }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div id="search-results">{% include "tools/search_results.html" %}</div>
+</div>
+{% endblock %}
