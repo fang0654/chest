@@ -1,20 +1,20 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.generic import ListView
 from django.db.models import Q
-from django.http import HttpResponse, HttpResponseNotFound
+from django.http import FileResponse, HttpResponse, HttpResponseNotFound
+from django.utils import timezone
 from django.conf import settings
 import os
 from .models import Tool, Tag
 from .forms import ToolEditForm
+from .services import ToolImportError, import_tool_from_github
+from .slack import announce_tool
 from .utils import (
+    GitHubRateLimited,
     extract_readme_content,
-    extract_readme_description,
-    extract_logo_url,
-    download_and_save_logo,
+    fetch_logo,
     extract_tool_name,
-    extract_tags_from_readme,
 )
-import pdb
 from django.contrib import messages
 from django.urls import reverse
 import requests
@@ -103,54 +103,55 @@ def edit_tool(request, tool_id):
     })
 
 
+LOGO_CACHE_SECONDS = 7 * 24 * 3600  # card URLs carry ?v=<updated_at>
+
+
+def _logo_response(tool):
+    response = FileResponse(tool.logo.open("rb"), content_type="image/png")
+    response["Cache-Control"] = f"public, max-age={LOGO_CACHE_SECONDS}"
+    return response
+
+
 def serve_tool_logo(request, tool_id):
     tool = get_object_or_404(Tool, id=tool_id)
 
     if tool.logo:
-        # If the logo exists, serve it directly
-        return HttpResponse(tool.logo.read(), content_type="image/png")
-    else:
-        # If no logo exists, try to fetch and save it
-        readme_content = extract_readme_content(tool.github_url)
-        if readme_content:
-            logo_url = extract_logo_url(readme_content, tool.github_url)
-            if logo_url:
-                logo_data = download_and_save_logo(logo_url, tool.name)
-                if logo_data:
-                    tool.logo.save(*logo_data)
-                    return HttpResponse(tool.logo.read(), content_type="image/png")
+        return _logo_response(tool)
 
-        # If we still don't have a logo, return a 404
-        return HttpResponseNotFound("Logo not found")
+    # Look for a logo at most once; "Refresh from GitHub" looks again.
+    # Without this, every page view re-asked GitHub for every logo-less tool.
+    if tool.logo_checked_at is None:
+        try:
+            readme_content = extract_readme_content(tool.github_url)
+        except GitHubRateLimited:
+            return HttpResponseNotFound("Logo not found")  # try again next view
+        logo_data = fetch_logo(readme_content, tool.github_url, tool.name) \
+            if readme_content else None
+        tool.logo_checked_at = timezone.now()
+        if logo_data:
+            tool.logo.save(*logo_data)
+            return _logo_response(tool)
+        tool.save(update_fields=["logo_checked_at"])
+
+    response = HttpResponseNotFound("Logo not found")
+    response["Cache-Control"] = "public, max-age=3600"
+    return response
 
 
 def submit_tool(request):
     if request.method == "POST":
-        github_url = request.POST.get("github_url")
-        readme_content = extract_readme_content(github_url)
+        try:
+            tool = import_tool_from_github(
+                request.POST.get("github_url", ""),
+                source=Tool.SOURCE_WEB,
+                tag_ids=request.POST.getlist("tags"),
+                full_readme=False,
+            )
+        except ToolImportError as exc:
+            messages.error(request, str(exc))
+            return redirect("tool_list")
 
-        # Extract tool name from README
-        name = extract_tool_name(readme_content)
-        if not name:
-            name = github_url.split("/")[-1]  # Fallback to repository name
-
-        description = extract_readme_description(readme_content)
-        logo_url = extract_logo_url(readme_content, github_url)
-        tag_ids = request.POST.getlist("tags")
-
-        tool = Tool.objects.create(
-            name=name, github_url=github_url, description=description
-        )
-
-        # Handle logo if available
-        if logo_url:
-            logo_data = download_and_save_logo(logo_url, name)
-            if logo_data:
-                tool.logo.save(*logo_data)
-
-        if tag_ids:
-            tool.tags.set(tag_ids)
-
+        announce_tool(tool)
         return redirect("tool_list")
 
     tags = Tag.objects.all()
@@ -164,44 +165,17 @@ def import_tool(request):
         if not github_url:
             messages.error(request, "Please provide a GitHub URL")
             return redirect("tool_list")
-        
-        # Extract README content
-        readme_content = extract_readme_content(github_url)
-        if not readme_content:
-            messages.error(request, "Could not find README file in the repository")
+
+        try:
+            tool = import_tool_from_github(github_url, source=Tool.SOURCE_WEB)
+        except ToolImportError as exc:
+            messages.error(request, str(exc))
             return redirect("tool_list")
-        
-        # Extract tool name and description
-        tool_name = extract_tool_name(readme_content)
-        if not tool_name:
-            # Fallback to repository name if no name found
-            tool_name = github_url.split("/")[-1]
-        
-        # Create the tool
-        tool = Tool.objects.create(
-            name=tool_name,
-            github_url=github_url,
-            description=readme_content
-        )
-        
-        # Extract potential tags from README
-        found_tags = extract_tags_from_readme(readme_content)
-        
-        # Find matching existing tags (case-insensitive)
-        existing_tags = Tag.objects.filter(name__in=[tag.lower() for tag in found_tags])
-        tool.tags.add(*existing_tags)
-        
-        # Update logo if available
-        logo_url = extract_logo_url(readme_content, github_url)
-        if logo_url:
-            logo_result = download_and_save_logo(logo_url, tool_name)
-            if logo_result:
-                filename, content = logo_result
-                tool.logo.save(filename, content, save=False)
-        
-        messages.success(request, f"Successfully imported {tool_name}")
+
+        announce_tool(tool)
+        messages.success(request, f"Successfully imported {tool.name}")
         return redirect("tool_list")
-    
+
     return render(request, "tools/import_modal.html")
 
 
@@ -209,9 +183,10 @@ class ToolListView(ListView):
     model = Tool
     template_name = "tools/search_results.html"
     context_object_name = "tools"
+    paginate_by = 50
 
     def get_queryset(self):
-        queryset = Tool.objects.all()
+        queryset = Tool.objects.prefetch_related("tags")
         search = self.request.GET.get("q")
         selected_tags = self.request.GET.getlist("tags")
 
@@ -229,13 +204,11 @@ class ToolListView(ListView):
         context = super().get_context_data(**kwargs)
         context["all_tags"] = Tag.objects.all()
         context["selected_tags"] = self.request.GET.getlist("tags")
+        # Current search/filters, for pagination links
+        params = self.request.GET.copy()
+        params.pop("page", None)
+        context["filter_query"] = params.urlencode()
         return context
-
-    def get(self, request, *args, **kwargs):
-        response = super().get(request, *args, **kwargs)
-        if request.headers.get("HX-Request"):
-            return render(request, "tools/search_results.html", self.get_context_data())
-        return response
 
 
 def tool_card(request, tool_id):
@@ -263,16 +236,16 @@ def refresh_tool(request, tool_id):
             return HttpResponse(status=400)
         
         # Update tool information
-        tool.name = extract_tool_name(readme_content) or tool.name
+        tool.name = extract_tool_name(readme_content, tool.github_url) or tool.name
         tool.description = readme_content
         
-        # Update logo if available
-        logo_url = extract_logo_url(readme_content, tool.github_url)
-        if logo_url:
-            logo_result = download_and_save_logo(logo_url, tool.name)
-            if logo_result:
-                filename, content = logo_result
-                tool.logo.save(filename, content, save=False)
+        # Update logo if available (saved together with the fields below)
+        logo_result = fetch_logo(readme_content, tool.github_url, tool.name)
+        tool.logo_checked_at = timezone.now()
+        if logo_result:
+            if tool.logo:
+                tool.logo.delete(save=False)  # don't orphan the old file
+            tool.logo.save(*logo_result, save=False)
         
         tool.save()
         messages.success(request, "Tool information refreshed successfully")

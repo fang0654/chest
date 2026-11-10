@@ -1,0 +1,45 @@
+x-chest-env: &chest-env
+  SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+  DEBUG: "False"
+  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+  CHEST_PUBLIC_URL: ${CHEST_PUBLIC_URL:-}
+  SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+  SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID:-}
+  SLACK_IMPORT_ENABLED: ${SLACK_IMPORT_ENABLED:-False}
+  SLACK_POST_ENABLED: ${SLACK_POST_ENABLED:-False}
+  SLACK_POLL_INTERVAL: ${SLACK_POLL_INTERVAL:-900}
+
+services:
+  chest:
+    build: .
+    image: chest:latest
+    restart: unless-stopped
+    ports:
+      - "${CHEST_PORT:-8000}:8000"
+    environment: *chest-env
+    volumes:
+      - chest-data:/data
+    healthcheck:
+      # Any HTTP answer below 500 means gunicorn is up (ALLOWED_HOSTS may 400 "localhost")
+      test: ["CMD", "python", "-c", "import sys,urllib.request,urllib.error\ntry: urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5)\nexcept urllib.error.HTTPError as e: sys.exit(e.code >= 500)\nexcept Exception: sys.exit(1)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  # Imports GitHub links posted in Slack every SLACK_POLL_INTERVAL seconds.
+  # Idles while SLACK_IMPORT_ENABLED is off.
+  slack-poller:
+    image: chest:latest
+    restart: unless-stopped
+    command: ["python", "manage.py", "poll_slack", "--loop"]
+    environment: *chest-env
+    volumes:
+      - chest-data:/data
+    depends_on:
+      chest:
+        condition: service_healthy   # migrations have run
+
+volumes:
+  chest-data:

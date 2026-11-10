@@ -1,13 +1,12 @@
 from django.contrib import admin
+from django.utils import timezone
 from .models import Tool, Tag
 from .utils import (
     extract_readme_content,
     extract_readme_description,
-    extract_logo_url,
-    download_and_save_logo,
+    fetch_logo,
     extract_tool_name,
 )
-import pdb
 
 @admin.register(Tag)
 class TagAdmin(admin.ModelAdmin):
@@ -29,7 +28,7 @@ class ToolAdmin(admin.ModelAdmin):
             
             if readme_content:
                 # Extract and update tool name
-                name = extract_tool_name(readme_content)
+                name = extract_tool_name(readme_content, tool.github_url)
                 if name:
                     tool.name = name
 
@@ -39,11 +38,12 @@ class ToolAdmin(admin.ModelAdmin):
                     tool.description = description
 
                 # Update logo
-                logo_url = extract_logo_url(readme_content, tool.github_url)
-                if logo_url:
-                    logo_data = download_and_save_logo(logo_url, tool.name)
-                    if logo_data:
-                        tool.logo.save(*logo_data)
+                logo_data = fetch_logo(readme_content, tool.github_url, tool.name)
+                tool.logo_checked_at = timezone.now()
+                if logo_data:
+                    if tool.logo:
+                        tool.logo.delete(save=False)  # don't orphan the old file
+                    tool.logo.save(*logo_data, save=False)
 
                 tool.save()
 

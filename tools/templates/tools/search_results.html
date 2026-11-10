@@ -54,6 +54,14 @@
         </form>
     </div>
 
+    {% if page_obj %}
+    <p class="text-sm text-gray-500 mb-4">
+        {% if page_obj.paginator.count %}
+        Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }} tool{{ page_obj.paginator.count|pluralize }}
+        {% endif %}
+    </p>
+    {% endif %}
+
     <div id="tool-list" class="space-y-6">
         {% for tool in tools %}
             {% include "tools/tool_card.html" with tool=tool %}
@@ -63,6 +71,24 @@
         </div>
         {% endfor %}
     </div>
+
+    {% if is_paginated %}
+    {% with q=filter_query %}
+    <nav class="flex items-center justify-between mt-8" aria-label="Pagination">
+        {% if page_obj.has_previous %}
+        <a href="?{% if q %}{{ q }}&amp;{% endif %}page={{ page_obj.previous_page_number }}"
+           class="px-4 py-2 bg-white rounded-lg shadow hover:bg-gray-50 text-blue-600">&larr; Previous</a>
+        {% else %}<span></span>{% endif %}
+
+        <span class="text-sm text-gray-600">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+
+        {% if page_obj.has_next %}
+        <a href="?{% if q %}{{ q }}&amp;{% endif %}page={{ page_obj.next_page_number }}"
+           class="px-4 py-2 bg-white rounded-lg shadow hover:bg-gray-50 text-blue-600">Next &rarr;</a>
+        {% else %}<span></span>{% endif %}
+    </nav>
+    {% endwith %}
+    {% endif %}
 </div>
 
 <div id="import-modal-container"></div>

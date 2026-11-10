@@ -5,10 +5,17 @@
     <div class="p-4">
         <div class="flex items-start justify-between">
             <div class="flex items-center space-x-3">
-                <img src="{% url 'serve_tool_logo' tool.id %}" 
-                     alt="{{ tool.name }} logo" 
+                {% if tool.logo or not tool.logo_checked_at %}
+                <img src="{% url 'serve_tool_logo' tool.id %}?v={{ tool.updated_at|date:'U' }}"
+                     alt="{{ tool.name }} logo"
+                     loading="lazy"
                      class="w-12 h-12 rounded-lg object-contain"
-                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM5Q0EwQkUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMjEgMTVhMiAyIDAgMCAxLTIgMkg1YTIgMiAwIDAgMS0yLTJWN2EyIDIgMCAwIDEgMi0yaDE0YTIgMiAwIDAgMSAyIDJ2OHoiLz48L3N2Zz4='">
+                     onerror="this.replaceWith(document.getElementById('logo-placeholder').content.cloneNode(true))">
+                {% else %}
+                <div class="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 shrink-0" aria-hidden="true">
+                    <i class="fa-solid fa-toolbox text-xl"></i>
+                </div>
+                {% endif %}
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900">
                         <a href="{{ tool.github_url }}" target="_blank" class="hover:text-blue-600 transition-colors">
@@ -40,13 +47,14 @@
             </div>
         </div>
         
-        <div class="mt-2">
-            <div id="description-{{ tool.id }}" class="prose prose-sm max-w-none">
-                <div class="description-preview">
-                    {{ tool.description|markdown_to_html|safe }}
-                </div>
-            </div>
-            <button class="mt-2 text-sm text-blue-600 hover:text-blue-800 toggle-description"
+        <div class="mt-2 text-sm text-gray-700">
+            {# Cards carry a short summary; the full README loads on demand #}
+            <p id="summary-{{ tool.id }}">{{ tool.description|summary:300 }}</p>
+            <div id="full-description-{{ tool.id }}" class="hidden"></div>
+            <button class="mt-2 text-sm text-blue-600 hover:text-blue-800"
+                    hx-get="{% url 'tool_description' tool.id %}"
+                    hx-target="#full-description-{{ tool.id }}"
+                    hx-trigger="click once"
                     onclick="toggleDescription(this, '{{ tool.id }}')">
                 Show More
             </button>
@@ -79,28 +87,3 @@
     <div id="tag-modal-container-{{ tool.id }}"></div>
 </div>
 
-<style>
-.description-preview {
-    display: -webkit-box;
-    -webkit-line-clamp: 5;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-}
-
-.description-preview.expanded {
-    -webkit-line-clamp: unset;
-}
-</style>
-
-<script>
-function toggleDescription(button, toolId) {
-    const description = document.querySelector(`#description-${toolId} .description-preview`);
-    if (description.classList.contains('expanded')) {
-        description.classList.remove('expanded');
-        button.textContent = 'Show More';
-    } else {
-        description.classList.add('expanded');
-        button.textContent = 'Show Less';
-    }
-}
-</script> 

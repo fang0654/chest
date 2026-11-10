@@ -39,5 +39,23 @@
         </p>
       </div>
     </footer>
+    {# Fallback when a logo image fails to load #}
+    <template id="logo-placeholder">
+      <div class="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 shrink-0" aria-hidden="true">
+        <i class="fa-solid fa-toolbox text-xl"></i>
+      </div>
+    </template>
+    <script>
+      // Tool cards: swap between the summary and the full README
+      // (fetched by htmx on the first click).
+      function toggleDescription(button, toolId) {
+        const summary = document.getElementById(`summary-${toolId}`);
+        const full = document.getElementById(`full-description-${toolId}`);
+        const expand = full.classList.contains("hidden");
+        full.classList.toggle("hidden", !expand);
+        summary.classList.toggle("hidden", expand);
+        button.textContent = expand ? "Show Less" : "Show More";
+      }
+    </script>
   </body>
 </html>
